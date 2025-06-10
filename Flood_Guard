@@ -1,0 +1,251 @@
+from time import sleep
+from alive_progress import alive_bar
+import pandas 
+import sklearn
+# import sklearn.neural_network
+import sklearn.tree
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc
+from sklearn.preprocessing import label_binarize
+from itertools import cycle
+import numpy as np
+import joblib
+
+print("Loading data...")
+with alive_bar(100, bar='filling', spinner='stars', title="Loading Score") as bar:
+    for _ in range(100):
+        sleep(0.01)  # Simulate loading time
+        bar()
+data = pandas.read_csv(r'C:\Users\pries\OneDrive\Desktop\Games\PythonPrograms\Face\Flood Model\WA_Soils.csv')
+print("Data loaded!")
+data = data.sample(frac=1, random_state=13)
+data = data[['OBJECTID','SOIL_PRNT_MAT','SOIL_PRECIP', 'SOIL_FLOOD_HAZARD', 'SOIL_DPT', 'SOIL_WATER_CAPY', 'SOIL_DRAIN_RATE']]
+
+# Clean data
+data['SOIL_FLOOD_HAZARD'] = data['SOIL_FLOOD_HAZARD'].str.strip()
+data['SOIL_WATER_CAPY'] = data['SOIL_WATER_CAPY'].str.strip()
+data['SOIL_PRNT_MAT'] = data['SOIL_PRNT_MAT'].str.strip()
+
+# Data exploration
+unique_flood_hazard = data['SOIL_FLOOD_HAZARD'].unique()
+unique_soil_dpt = data['SOIL_DPT'].unique()
+unique_precip = data['SOIL_PRECIP'].unique()
+unique_soil_water_capy = data['SOIL_WATER_CAPY'].unique()
+unique_soil_drain_rate = data['SOIL_DRAIN_RATE'].unique()
+unique_soil_prnt_mat = data['SOIL_PRNT_MAT'].unique()
+
+# Special data processing functions
+def get_first_number(s: str) -> int:
+    if '>' in s:
+        second_half = s.split('>')[1].strip()
+        return int(second_half.split(' ')[0])
+    return int(s.split('-')[0].strip())
+
+def get_second_number(s: str) -> int:
+    if '>' in s:
+        second_half = s.split('>')[1].strip()
+        return int(second_half.split(' ')[0])+40
+    second_half = s.split('-')[1].strip()
+    result = second_half.split(' ')[0].strip()
+    return int(result)
+
+def is_volcanic(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if "VOLC." in s:
+        return 1
+    return 2
+
+def is_glacial(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'GLACIAL' in s:
+        return 1
+    return 2
+
+def is_organic(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'ORGANIC' in s:
+        return 1
+    return 2
+
+def is_wind(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'WIND' in s:
+        return 1
+    return 2
+
+def is_bedrock(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'BEDROCK' in s:
+        return 1
+    return 2
+
+def is_alluvium(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'ALLUVIUM' in s:
+        return 1
+    return 2
+
+def is_drift(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'DRIFT' in s:
+        return 1
+    return 2
+
+def is_sediments(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'SEDIMENTS' in s:
+        return 1
+    return 2
+
+def is_peat(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'PEAT' in s:
+        return 1
+    return 2
+
+def is_mucks(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'MUCKS' in s:
+        return 1
+    return 2
+
+def is_loess(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'LOESS' in s:
+        return 1
+    return 2
+
+def is_beach(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'BEACH' in s:
+        return 1
+    return 2
+
+def is_ash(s: str) -> int:
+    if not isinstance(s, str):
+        return 0
+    if 'ASH' in s:
+        return 1
+    return 2
+
+# Remap dictionaries
+remap_flood_hazard = {'SLIGHT': 0, 'SEVERE': 1, 'MODERATE': 2}
+remap_precip_low = {name: get_first_number(name) for name in unique_precip if isinstance(name, str)}
+remap_precip_high = {name: get_second_number(name) for name in unique_precip if isinstance(name, str)}
+remap_dpt_low = {name: get_first_number(name) for name in unique_soil_dpt if isinstance(name, str)}
+remap_dpt_high = {name: get_second_number(name) for name in unique_soil_dpt if isinstance(name, str)}
+remap_soil_water_capy = {'VERY LOW': 0, 'LOW': 1, 'MODERATE': 2, 'HIGH': 3}
+remap_soil_drain_rate = {value: float(idx) for idx, value in enumerate(unique_soil_drain_rate)}
+# Apply remap dictionaries to data
+data["SOIL_FLOOD_HAZARD"] = data["SOIL_FLOOD_HAZARD"].map(remap_flood_hazard)
+data["SOIL_PRECIP_LOW"] = data["SOIL_PRECIP"].map(remap_precip_low)
+data["SOIL_PRECIP_HIGH"] = data["SOIL_PRECIP"].map(remap_precip_high)
+data.drop(columns=["SOIL_PRECIP"], inplace=True)
+data["SOIL_DPT_LOW"] = data["SOIL_DPT"].map(remap_dpt_low)
+data["SOIL_DPT_HIGH"] = data["SOIL_DPT"].map(remap_dpt_high)
+data.drop(columns=["SOIL_DPT"], inplace=True)
+data["SOIL_WATER_CAPY"] = data["SOIL_WATER_CAPY"].map(remap_soil_water_capy)
+data["SOIL_DRAIN_RATE"] = data["SOIL_DRAIN_RATE"].map(remap_soil_drain_rate)
+# Create new catagories from misc text location
+data["IS_VOLCANIC"] = data["SOIL_PRNT_MAT"].map(is_volcanic)
+data["IS_GLACIAL"] = data["SOIL_PRNT_MAT"].map(is_glacial)
+data["IS_ORGANIC"] = data["SOIL_PRNT_MAT"].map(is_organic)
+data["IS_WIND"] = data["SOIL_PRNT_MAT"].map(is_wind)
+data["IS_BEDROCK"] = data["SOIL_PRNT_MAT"].map(is_bedrock)
+data["IS_ALLUVIUM"] = data["SOIL_PRNT_MAT"].map(is_alluvium)
+data["IS_DRIFT"] = data["SOIL_PRNT_MAT"].map(is_drift)
+data["IS_SEDIMENTS"] = data["SOIL_PRNT_MAT"].map(is_sediments)
+data["IS_PEAT"] = data["SOIL_PRNT_MAT"].map(is_peat)
+data["IS_MUCKS"] = data["SOIL_PRNT_MAT"].map(is_mucks)
+data["IS_LOESS"] = data["SOIL_PRNT_MAT"].map(is_loess)
+data["IS_BEACH"] = data["SOIL_PRNT_MAT"].map(is_beach)
+data["IS_ASH"] = data["SOIL_PRNT_MAT"].map(is_ash)
+data.drop(columns=["SOIL_PRNT_MAT"], inplace=True)
+# Display processed data
+
+training_data = data.dropna(subset=["SOIL_FLOOD_HAZARD"])
+training_data = training_data.drop("OBJECTID", axis=1)
+# Prepare features and labels
+label = training_data[["SOIL_FLOOD_HAZARD"]]
+features = training_data.drop(["SOIL_FLOOD_HAZARD"], axis=1)
+
+mean = features.mean()
+features = features.fillna(mean)
+
+ratio = 0.9 
+total_rows = training_data.shape[0]
+train_rows = int(total_rows * ratio)
+
+train_labels = label[0:train_rows]
+test_labels = label[train_rows:]  # Keep all columns for multi-label testing# Select the first column for binary classification
+
+train_features = features[0:train_rows]
+test_features = features[train_rows:]
+
+print("Label shape:", label.shape)
+print("Test label shape:", label[train_rows:].shape)
+# Train the model
+model = sklearn.tree.DecisionTreeClassifier()
+model.fit(train_features, train_labels)
+
+# Evaluate the model
+score = model.score(test_features, test_labels)
+print(f"Model score: {score}")
+
+# Generate predictions for the test set
+test_predictions = model.predict(test_features)
+
+# Generate the confusion matrix
+cm = confusion_matrix(test_labels, test_predictions)
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['SLIGHT', 'SEVERE', 'MODERATE'])
+
+# Plot the confusion matrix
+disp.plot(cmap=plt.cm.Blues)
+plt.title('Confusion Matrix')
+plt.show()
+
+# Compute ROC Curve and AUC for each class
+test_labels_binarized = label_binarize(test_labels.values, classes=[0, 1, 2])  # Ensure it's a 1D array
+n_classes = test_labels_binarized.shape[1]
+fpr = dict()
+tpr = dict()
+roc_auc = dict()
+
+for i in range(n_classes):
+    fpr[i], tpr[i], _ = roc_curve(test_labels_binarized[:, i], model.predict_proba(test_features)[:, i])
+    roc_auc[i] = auc(fpr[i], tpr[i])
+
+# Feature Importance Plot
+importances = model.feature_importances_
+indices = np.argsort(importances)[::-1]
+feature_names = features.columns
+
+plt.figure(figsize=(12, 6))
+plt.title("Feature Importances")
+plt.bar(range(6), importances[indices][:6], align="center")
+plt.xticks(range(6), feature_names[indices][:6], rotation=90, fontsize=10)
+plt.xlim([-1, 6])
+plt.show()
+
+# Make predictions
+predictions_features = data.drop(["SOIL_FLOOD_HAZARD","OBJECTID"], axis=1)
+mean = predictions_features.mean()
+predictions_features = predictions_features.fillna(mean)
+predictions = model.predict(predictions_features)
+score = pandas.DataFrame({"SOIL_FLOOD_HAZARD" : predictions})
+score["SOIL_FLOOD_HAZARD"] = score["SOIL_FLOOD_HAZARD"].map({0:'SLIGHT', 1:'SEVERE', 2:'MODERATE'})
+score["OBJECTID"] = data["OBJECTID"]
+score.to_csv("ai_flood_predictions.csv", index=True)
+
